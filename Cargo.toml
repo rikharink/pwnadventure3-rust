@@ -1,0 +1,27 @@
+[package]
+edition = "2021"
+name = "pwnymyland"
+version = "0.1.0"
+
+[lib]
+crate-type = ["cdylib"]
+name = "injectee"
+
+[[bin]]
+name = "injector"
+path = "src/main.rs"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+color-eyre = "0.6.2"
+ctor = "0.1.26"
+detour = "0.8.1"
+dll-syringe = {version = "0.13.1", features = ["into-x86-from-x64"]}
+tracing = "0.1.37"
+tracing-subscriber = "0.3.16"
+winapi = "0.3.9"
+widestring = "1.0.2"
+
+[profile.dev.package.backtrace]
+opt-level = 3
