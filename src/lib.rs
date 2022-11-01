@@ -1,74 +1,89 @@
 use detour::static_detour;
 use std::{
-    ffi::{c_char, c_void, CString},
-    iter,
-    mem::{self, size_of},
-    net::TcpStream,
-    sync::Mutex,
-    thread,
+    ffi::{c_char, c_void, CStr},
+    iter, mem, thread,
 };
-use tracing::{info, metadata::LevelFilter};
 use winapi::um::libloaderapi::GetModuleHandleW;
 
 static_detour! {
-    static ChatHook: unsafe extern "system" fn(*const c_void, *const c_char);
+    static ChatHook: unsafe extern "fastcall" fn(*const c_void, *const c_void, *const c_char);
 }
 
-type FnChat = unsafe extern "system" fn(*const c_void, *const c_char);
+type FnChat = unsafe extern "fastcall" fn(*const c_void, *const c_void, *const c_char);
 
 /// Called when the DLL is attached to the process.
 #[ctor::ctor()]
 fn ctor() {
     thread::spawn(|| {
-        let stream = TcpStream::connect("127.0.0.1:7331").unwrap();
-        tracing_subscriber::fmt()
-            .with_writer(Mutex::new(stream))
-            .with_max_level(LevelFilter::DEBUG)
-            .init();
-        trainer().unwrap();
+        unsafe {
+            winapi::um::consoleapi::AllocConsole();
+        }
+
+        match trainer() {
+            Ok(_) => {
+                return;
+            }
+            Err(e) => {
+                println!("Error: {}", e);
+            }
+        }
     });
 }
 
-fn game_module_address() -> *const usize {
+fn game_module_address() -> usize {
     let module = "GameLogic.dll"
         .encode_utf16()
         .chain(iter::once(0))
         .collect::<Vec<u16>>();
     unsafe {
         let h = GetModuleHandleW(module.as_ptr());
-        h as *const usize
+        h as usize
     }
 }
 
-fn chat_detour(this: *const c_void, msg: *const c_char) {
-    info!("HACKS");
-    unsafe { ChatHook.call(this, msg) }
+fn chat_detour(this: *const c_void, d: *const c_void, msg: *const c_char) {
+    let c_str: &CStr = unsafe { CStr::from_ptr(msg) };
+    let str_slice: &str = c_str.to_str().unwrap();
+    if str_slice.starts_with("#") {
+        let mut command_parts: Vec<&str> = str_slice.trim_start_matches("#").split(" ").collect();
+        if command_parts.len() == 0 {
+            return;
+        }
+
+        command_parts.reverse();
+        let command = command_parts.pop().unwrap();
+        println!("COMMAND: {}", command);
+        if command == "STOP" {}
+        return;
+    }
+    unsafe { ChatHook.call(this, d, msg) }
+}
+
+unsafe fn setup_chat_detour(game_logic: usize) {
+    let chat_offset: usize = 0x551A0;
+    let chat_address = game_logic + chat_offset;
+    let chat: FnChat = mem::transmute(chat_address);
+    println!("Hooking chat at address {:#x}...", chat_address);
+    ChatHook
+        .initialize(chat, chat_detour)
+        .unwrap()
+        .enable()
+        .unwrap();
+    println!("Chat is hooked");
 }
 
 fn trainer() -> color_eyre::Result<()> {
-    info!("I'm inside");
-    info!("Searching for detour address....");
+    println!("Searching for game logic address....");
     let game_logic = game_module_address();
-    info!("Found logic {:?}", game_logic);
-    info!("Trying to hook...");
+    println!("Found address {:#x}", game_logic);
     unsafe {
-        let offset: usize = 0x551A0;
-        let chat_address = game_logic.add(offset / 4);
-        let chat: FnChat = mem::transmute(chat_address);
-        info!("Initialize hook for addr {:?}...", chat_address);
-        let init_hook = ChatHook.initialize(chat, chat_detour);
-        match init_hook {
-            Ok(init) => {
-                info!("INIT OK");
-                let enable_hook = init.enable();
-                match enable_hook {
-                    Ok(_) => info!("ENABLE OK"),
-                    Err(_) => info!("ENABLE NOT OK"),
-                };
-            }
-            Err(e) => info!("INIT NOT OK {}", e),
-        };
+        setup_chat_detour(game_logic);
     }
-    info!("detoured");
     Ok(())
+}
+
+#[no_mangle]
+unsafe extern "system" fn unhook() {
+    println!("Unhooking...");
+    ChatHook.disable().unwrap();
 }

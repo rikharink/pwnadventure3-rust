@@ -16,12 +16,13 @@ path = "src/main.rs"
 [dependencies]
 color-eyre = "0.6.2"
 ctor = "0.1.26"
+ctrlc = "3.2.3"
 detour = "0.8.1"
 dll-syringe = {version = "0.13.1", features = ["into-x86-from-x64"]}
 tracing = "0.1.37"
 tracing-subscriber = "0.3.16"
-winapi = "0.3.9"
 widestring = "1.0.2"
+winapi = "0.3.9"
 
 [profile.dev.package.backtrace]
 opt-level = 3
